@@ -1,4 +1,5 @@
 """Offline tests using only the standard library. Run: py -3 -m unittest -v"""
+from contextlib import closing
 import hashlib
 import io
 import json
@@ -37,7 +38,7 @@ class ConversionTests(unittest.TestCase):
         self.blue = png()
 
     def archive(self, rows, projection=None, attribution=None):
-        with sqlite3.connect(self.source) as db:
+        with closing(sqlite3.connect(self.source)) as db, db:
             db.execute('CREATE TABLE tiles (key INTEGER, provider TEXT, tile BLOB)')
             db.executemany('INSERT INTO tiles VALUES (?,?,?)', rows)
             if projection is not None or attribution is not None:
@@ -55,7 +56,7 @@ class ConversionTests(unittest.TestCase):
         self.archive([(46807831, 'imagery', self.blue)])
         before = hashlib.sha256(self.source.read_bytes()).digest()
         result = self.run_conversion()
-        with sqlite3.connect(self.output) as db:
+        with closing(sqlite3.connect(self.output)) as db:
             self.assertEqual(db.execute('SELECT * FROM tiles').fetchall(), [(11, 327, 1256, self.blue)])
             meta = dict(db.execute('SELECT name, value FROM metadata'))
             self.assertEqual((meta['minzoom'], meta['maxzoom'], meta['format']), ('11', '11', 'png'))
@@ -86,7 +87,7 @@ class ConversionTests(unittest.TestCase):
         self.archive([(encoded(1, 0, 0), 'base', self.blue), (encoded(2, 3, 3), 'base', self.blue)])
         result = self.run_conversion()
         self.assertIsNone(result['bounds'])
-        with sqlite3.connect(self.output) as db:
+        with closing(sqlite3.connect(self.output)) as db:
             self.assertNotIn('bounds', dict(db.execute('SELECT * FROM metadata')))
             self.assertEqual(db.execute('SELECT count(*) FROM tiles').fetchone()[0], 2)
 
@@ -105,7 +106,7 @@ class ConversionTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
         result = self.run_conversion(layer=2)
         self.assertEqual(result['provider'], 'b')
-        with sqlite3.connect(self.output) as db:
+        with closing(sqlite3.connect(self.output)) as db:
             self.assertEqual(db.execute('SELECT tile_data FROM tiles').fetchall(), [(red,)])
 
     def test_null_provider_supported(self):
@@ -126,7 +127,7 @@ class ConversionTests(unittest.TestCase):
     def test_supported_crs_and_attribution_retained(self):
         self.archive([(4, 'base', self.blue)], projection='3857', attribution='Synthetic test map')
         self.run_conversion()
-        with sqlite3.connect(self.output) as db:
+        with closing(sqlite3.connect(self.output)) as db:
             self.assertEqual(dict(db.execute('SELECT * FROM metadata'))['attribution'], 'Synthetic test map')
 
     def test_duplicates_fail_without_partial_output(self):
@@ -164,7 +165,7 @@ class ConversionTests(unittest.TestCase):
             self.run_conversion()
 
     def test_wrong_schema_rejected(self):
-        with sqlite3.connect(self.source) as db:
+        with closing(sqlite3.connect(self.source)) as db, db:
             db.execute('CREATE TABLE tiles (zoom_level INTEGER, tile_column INTEGER, tile_row INTEGER, tile_data BLOB)')
         with self.assertRaisesRegex(converter.ConversionError, 'Expected tiles'):
             self.run_conversion()
